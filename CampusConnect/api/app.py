@@ -23,7 +23,7 @@ def handle_db_call(call):
         logger.error("Database connection timeout")
         abort(503, "Database connection timeout")
 
-@app.route('/products', methods=['GET'])
+@app.route('/api/products', methods=['GET'])
 def get_products():
     try:
         products = handle_db_call(lambda: list(mongo.db.products.find()))
@@ -32,7 +32,7 @@ def get_products():
         logger.error(f"Failed to retrieve products: {e}")
         abort(500, "Internal Server Error")
 
-@app.route('/products/<product_id>', methods=['GET'])
+@app.route('/api/products/<product_id>', methods=['GET'])
 def get_product(product_id):
     try:
         product = handle_db_call(lambda: mongo.db.products.find_one_or_404({'_id': ObjectId(product_id)}))
@@ -41,7 +41,7 @@ def get_product(product_id):
         logger.error(f"Failed to retrieve product {product_id}: {e}")
         abort(500, "Internal Server Error")
 
-@app.route('/products', methods=['POST'])
+@app.route('/api/products', methods=['POST'])
 def create_product():
     try:
         product_data = request.json
@@ -53,7 +53,7 @@ def create_product():
         logger.error(f"Failed to create product: {e}")
         abort(500, "Internal Server Error")
 
-@app.route('/services', methods=['GET'])
+@app.route('/api/services', methods=['GET'])
 def get_services():
     try:
         services = handle_db_call(lambda: list(mongo.db.services.find()))
@@ -62,7 +62,7 @@ def get_services():
         logger.error(f"Failed to retrieve services: {e}")
         abort(500, "Internal Server Error")
 
-@app.route('/services/<service_id>', methods=['GET'])
+@app.route('/api/services/<service_id>', methods=['GET'])
 def get_service(service_id):
     try:
         service = handle_db_call(lambda: mongo.db.services.find_one_or_404({'_id': ObjectId(service_id)}))
@@ -71,7 +71,7 @@ def get_service(service_id):
         logger.error(f"Failed to retrieve service {service_id}: {e}")
         abort(500, "Internal Server Error")
 
-@app.route('/services', methods=['POST'])
+@app.route('/api/services', methods=['POST'])
 def create_service():
     try:
         service_data = request.json
@@ -83,7 +83,7 @@ def create_service():
         logger.error(f"Failed to create service: {e}")
         abort(500, "Internal Server Error")
 
-@app.route('/appointments/<service_id>', methods=['GET'])
+@app.route('/api/appointments/<service_id>', methods=['GET'])
 def get_appointments_for_service(service_id):
     try:
         appointments = handle_db_call(lambda: list(mongo.db.appointments.find({'service_id': service_id})))
@@ -93,7 +93,7 @@ def get_appointments_for_service(service_id):
         logger.error(f"Failed to retrieve appointments for service {service_id}: {e}")
         abort(500, "Internal Server Error")
 
-@app.route('/appointments', methods=['POST'])
+@app.route('/api/appointments', methods=['POST'])
 def book_appointment():
     try:
         appointment_data = request.json
