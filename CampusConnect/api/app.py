@@ -28,6 +28,11 @@ def handle_db_call(call):
         abort(503, "Database connection timeout")
 
 
+@app.route('/health-check', methods=['GET'])
+def healthcheck():
+    return "OK", 200
+
+
 @app.route('/api/products', methods=['GET'])
 def get_products():
     try:
