@@ -45,6 +45,11 @@ def get_services():
     response = requests.get(f"{BASE_URL}/api/services")
     if response.status_code < 400:
         print(f"Get Services status: {response.status_code}, {response.text}")
+
+def check_username(username):
+    response = requests.get(f"{BASE_URL}/api/check_username?username={username}")
+    if response.status_code < 400:
+        print(f"Check username: {response.json()}")
     
 
 if __name__ == "__main__":
@@ -53,6 +58,9 @@ if __name__ == "__main__":
 
 
     register_user(username, password)
+
+    check_username(username)
+    check_username("Not existent")
   
     access_token = login(username, password)
     print(f"Access token: {access_token}")
