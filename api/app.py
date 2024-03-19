@@ -109,8 +109,13 @@ def create_product():
         if 'user' not in product_data or product_data['user'] != current_user:
             abort(403, "Unauthorized: User mismatch")
 
-        if not all(key in product_data for key in ['user', 'description']):
-            abort(400, "Missing required fields for product listing")
+        required_fields = ['user', 'description', 'price']
+        missing_fields = [field for field in required_fields if field not in product_data or not product_data[field]]
+        if missing_fields:
+            abort(400, f"Missing or empty required fields for product listing: {', '.join(missing_fields)}")
+        
+        #if not all(key in product_data for key in ['user', 'description', 'price']):
+        #    abort(400, "Missing required fields for product listing")
         product_id = handle_db_call(
             lambda: mongo.db.products.insert_one(product_data).inserted_id)
         return json_util.dumps({"message": "Product created successfully", "product_id": str(product_id)}), 201
@@ -149,11 +154,16 @@ def create_service():
         if 'user' not in service_data or service_data['user'] != current_user:
             abort(403, "Unauthorized: User mismatch")
 
-        if not all(key in service_data for key in ['user', 'description']):
-            abort(400, "Missing required fields for service")
+        required_fields = ['user', 'description', 'price']
+        missing_fields = [field for field in required_fields if field not in service_data or not service_data[field]]
+        if missing_fields:
+            abort(400, f"Missing or empty required fields for service listing: {', '.join(missing_fields)}")
+        
+        #if not all(key in service_data for key in ['user', 'description', 'price']):
+        #    abort(400, "Missing required fields for service listing")
         service_id = handle_db_call(
             lambda: mongo.db.services.insert_one(service_data).inserted_id)
-        return json_util.dumps({"message": "Service created successfully", "service_id": str(service_id)}), 201
+        return json_util.dumps({"message": "service created successfully", "service_id": str(service_id)}), 201
     except Exception as e:
         logger.error(f"Failed to create service: {e}")
         abort(500, "Internal Server Error")
