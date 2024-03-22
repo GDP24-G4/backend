@@ -272,12 +272,6 @@ def book_appointment():
         if not service:
             return jsonify({"msg": "Service not found"}), 404
 
-        timeslot = appointment_data['timeslot']
-
-        # Check if the timeslot is within the service's available dates
-        if timeslot not in service.get('available_dates', []):
-            return jsonify({"msg": "This timeslot is not available for booking"}), 409
-
         existing_appointment = handle_db_call(lambda: mongo.db.appointments.find_one({
             'service_id': appointment_data['service_id'],
             'timeslot': appointment_data['timeslot']
@@ -301,14 +295,7 @@ def get_bookable_dates(service_id):
         if not service:
             return jsonify({"message": "Service not found"}), 404
         
-        available_dates = service.get('available_dates', [])
-
-        # Fetch all appointments for this service to find booked dates
-        existing_appointments = mongo.db.appointments.find({'service_id': service_id})
-        booked_dates = {appointment['timeslot'] for appointment in existing_appointments}
-
-        # Find dates that are available and not booked
-        bookable_dates = [date for date in available_dates if date not in booked_dates]
+        bookable_dates = service.get('available_dates', [])
 
         return jsonify({"bookable_dates": bookable_dates}), 200
     except Exception as e:
