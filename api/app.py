@@ -6,6 +6,7 @@ from flask_pymongo import PyMongo
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
 from bson import json_util, ObjectId
 from dotenv import load_dotenv
+from pymongo import ReturnDocument
 
 # load env
 load_dotenv()
@@ -103,25 +104,77 @@ def get_product(product_id):
 @app.route('/api/products', methods=['POST'])
 @jwt_required()
 def create_product():
-    try:
-        current_user = get_jwt_identity()
-        product_data = request.json
-        if 'user' not in product_data or product_data['user'] != current_user:
-            abort(403, "Unauthorized: User mismatch")
+    current_user = get_jwt_identity()
+    product_data = request.json
+    if 'user' not in product_data or product_data['user'] != current_user:
+        return jsonify({"msg": "Unauthorized: User mismatch"}), 403
 
-        required_fields = ['user', 'description', 'price']
-        missing_fields = [field for field in required_fields if field not in product_data or not product_data[field]]
-        if missing_fields:
-            abort(400, f"Missing or empty required fields for product listing: {', '.join(missing_fields)}")
+    required_fields = ['user', 'description', 'price', 'quantity']
+    missing_fields = [field for field in required_fields if field not in product_data or not product_data[field]]
+    if missing_fields:
+        return jsonify({"msg": f"Missing or empty required fields for product listing: {', '.join(missing_fields)}"}), 400
+    
+    product_id = handle_db_call(
+        lambda: mongo.db.products.insert_one(product_data).inserted_id)
+    return json_util.dumps({"message": "Product created successfully", "product_id": str(product_id)}), 201
+
+
+@app.route('/api/purchase_product/<product_id>', methods=['POST'])
+@jwt_required()
+def purchase_product(product_id):
+    current_user = get_jwt_identity()
+    
+    # Attempt to atomically decrement the quantity if it's greater than 0
+    # and ensure the current user is not the seller
+    updated_product = mongo.db.products.find_one_and_update(
+        {'_id': ObjectId(product_id), 'quantity': {'$gt': 0}, 'user': {'$ne': current_user}},
+        {'$inc': {'quantity': -1}},
+        return_document=ReturnDocument.AFTER
+    )
+
+    if not updated_product:
+        # Check if the product exists without applying updates
+        product = mongo.db.products.find_one({'_id': ObjectId(product_id)})
+        if not product:
+            return jsonify({"msg": "Product not found"}), 404
+        elif product['user'] == current_user:
+            return jsonify({"msg": "Sellers cannot buy their own products"}), 403
+        else:
+            return jsonify({"msg": "Product is not available"}), 409
+
+    return jsonify({"msg": "Product purchased successfully", "product_id": str(product_id), "new_quantity": updated_product['quantity']}), 200
+
+
+@app.route('/api/products/<product_id>/is_sold_out', methods=['GET'])
+def is_product_sold_out(product_id):
+    try:
+        product = mongo.db.products.find_one({'_id': ObjectId(product_id)})
+
+        if not product:
+            return jsonify({"msg": "Product not found"}), 404
         
-        #if not all(key in product_data for key in ['user', 'description', 'price']):
-        #    abort(400, "Missing required fields for product listing")
-        product_id = handle_db_call(
-            lambda: mongo.db.products.insert_one(product_data).inserted_id)
-        return json_util.dumps({"message": "Product created successfully", "product_id": str(product_id)}), 201
+        is_sold_out = product.get('quantity', 0) <= 0
+        return jsonify({"product_id": str(product_id), "is_sold_out": is_sold_out}), 200
+
     except Exception as e:
-        logger.error(f"Failed to create product: {e}")
-        abort(500, "Internal Server Error")
+        logger.error(f"Failed to check if product {product_id} is sold out: {e}")
+        return jsonify({"msg": "Internal Server Error"}), 500
+
+
+@app.route('/api/products/<product_id>', methods=['DELETE'])
+@jwt_required()
+def delete_product(product_id):
+    current_user = get_jwt_identity()
+
+    product = mongo.db.products.find_one({'_id': ObjectId(product_id)})
+    if not product:
+        return jsonify({"msg": "Product not found"}), 404
+
+    if product['user'] != current_user:
+        return jsonify({"msg": "Unauthorized to delete this product"}), 403
+
+    mongo.db.products.delete_one({'_id': ObjectId(product_id)})
+    return jsonify({"msg": "Product deleted successfully"}), 200
 
 
 @app.route('/api/services', methods=['GET'])
@@ -151,22 +204,41 @@ def create_service():
     try:
         current_user = get_jwt_identity()
         service_data = request.json
-        if 'user' not in service_data or service_data['user'] != current_user:
-            abort(403, "Unauthorized: User mismatch")
+        if 'user' not in service_data or service_data['user'] != current_user:    
+            return jsonify({"msg": "Unauthorized: User mismatch"}), 403
 
-        required_fields = ['user', 'description', 'price']
+        required_fields = ['user', 'description', 'price', 'available_dates']
         missing_fields = [field for field in required_fields if field not in service_data or not service_data[field]]
         if missing_fields:
-            abort(400, f"Missing or empty required fields for service listing: {', '.join(missing_fields)}")
-        
-        #if not all(key in service_data for key in ['user', 'description', 'price']):
-        #    abort(400, "Missing required fields for service listing")
+            return jsonify({"msg": f"Missing or empty required fields for service listing: {', '.join(missing_fields)}"}), 400
+      
         service_id = handle_db_call(
             lambda: mongo.db.services.insert_one(service_data).inserted_id)
         return json_util.dumps({"message": "service created successfully", "service_id": str(service_id)}), 201
     except Exception as e:
         logger.error(f"Failed to create service: {e}")
         abort(500, "Internal Server Error")
+
+
+@app.route('/api/services/<service_id>', methods=['DELETE'])
+@jwt_required()
+def delete_service(service_id):
+    current_user = get_jwt_identity()
+
+    service = mongo.db.services.find_one({'_id': ObjectId(service_id)})
+    if not service:
+        return jsonify({"msg": "Service not found"}), 404
+
+    if service['user'] != current_user:
+        return jsonify({"msg": "Unauthorized to delete this service"}), 403
+
+    # Delete the service
+    mongo.db.services.delete_one({'_id': ObjectId(service_id)})
+    
+    # Delete all appointments for this service
+    mongo.db.appointments.delete_many({'service_id': service_id})
+
+    return jsonify({"msg": "Service and associated appointments deleted successfully"}), 200
 
 
 @app.route('/api/appointments/<service_id>', methods=['GET'])
@@ -189,16 +261,22 @@ def book_appointment():
         current_user = get_jwt_identity()
         appointment_data = request.json
         if 'user' not in appointment_data or appointment_data['user'] != current_user:
-            abort(403, "Unauthorized: User mismatch")
+            return jsonify({"msg": "Unauthorized: User mismatch"}), 403
 
         if not all(key in appointment_data for key in ['service_id', 'timeslot', 'user']):
-            abort(400, "Missing required fields for appointment")
+            return jsonify({"msg": "Missing required fields for appointment"}), 400
 
         service = handle_db_call(lambda: mongo.db.services.find_one(
             {'_id': ObjectId(appointment_data['service_id'])}))
 
         if not service:
-            abort(404, "Service not found")
+            return jsonify({"msg": "Service not found"}), 404
+
+        timeslot = appointment_data['timeslot']
+
+        # Check if the timeslot is within the service's available dates
+        if timeslot not in service.get('available_dates', []):
+            return jsonify({"msg": "This timeslot is not available for booking"}), 409
 
         existing_appointment = handle_db_call(lambda: mongo.db.appointments.find_one({
             'service_id': appointment_data['service_id'],
@@ -206,11 +284,51 @@ def book_appointment():
         }))
 
         if existing_appointment:
-            abort(409, "Appointment already booked for this timeslot")
+            return jsonify({"msg":  "Appointment already booked for this timeslot"}), 409
 
         appointment_id = handle_db_call(
             lambda: mongo.db.appointments.insert_one(appointment_data).inserted_id)
         return json_util.dumps({"message": "Appointment booked successfully", "appointment_id": str(appointment_id)}), 200
     except Exception as e:
-        logger.error(f"Failed to book appointment: {e}")
+        logger.error(f"Failed to book an appointment for service {service_id}: {e}")
         abort(500, "Internal Server Error")
+
+@app.route('/api/bookable_dates/<service_id>', methods=['GET'])
+def get_bookable_dates(service_id):
+    try:
+        # Fetch the service to get its available dates
+        service = mongo.db.services.find_one({'_id': ObjectId(service_id)})
+        if not service:
+            return jsonify({"message": "Service not found"}), 404
+        
+        available_dates = service.get('available_dates', [])
+
+        # Fetch all appointments for this service to find booked dates
+        existing_appointments = mongo.db.appointments.find({'service_id': service_id})
+        booked_dates = {appointment['timeslot'] for appointment in existing_appointments}
+
+        # Find dates that are available and not booked
+        bookable_dates = [date for date in available_dates if date not in booked_dates]
+
+        return jsonify({"bookable_dates": bookable_dates}), 200
+    except Exception as e:
+        logger.error(f"Failed to get bookable dates for service {service_id}: {e}")
+        abort(500, "Internal Server Error")
+
+
+@app.route('/api/appointments/<appointment_id>', methods=['DELETE'])
+@jwt_required()
+def delete_appointment(appointment_id):
+    current_user = get_jwt_identity()
+
+    appointment = mongo.db.appointments.find_one({'_id': ObjectId(appointment_id)})
+    if not appointment:
+        return jsonify({"msg": "Appointment not found"}), 404
+
+    if appointment['user'] != current_user:
+        return jsonify({"msg": "Unauthorized to delete this appointment"}), 403
+
+    # Delete the appointment
+    mongo.db.appointments.delete_one({'_id': ObjectId(appointment_id)})
+
+    return jsonify({"msg": "Appointment deleted successfully"}), 200
