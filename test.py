@@ -11,13 +11,111 @@ def run_command(command):
 def start_docker():
     print("Starting Docker container...")
     run_command("docker-compose up -d")
-    print("Sleeping for 3 seconds for the server to start...")
-    time.sleep(3)
+    print("Sleeping for 5 seconds for the server to start...")
+    time.sleep(5)
 
 def stop_docker():
     print("Stopping Docker container...")
     run_command("docker-compose down")
     print("--------------------------------------------------------")
+
+def test_appointments_and_bookings():
+    print("Testing Product Search...")
+
+    # Register and login a user
+    response = requests.post(f"{API_BASE_URL}/api/register", json={"username": "testuser", "password": "password"})
+    assert response.status_code == 201, "\033[91mFailed to register user.\033[0m"
+
+    response = requests.post(f"{API_BASE_URL}/api/login", json={"username": "testuser", "password": "password"})
+    assert response.status_code == 200, "\033[91mFailed to login user.\033[0m"
+    token = response.json().get("access_token")
+
+    # Create dummy products
+    product_data = {"user": "testuser", "description": "Dummy Product 1", "price": 10, "quantity": 100}
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.post(f"{API_BASE_URL}/api/products", json=product_data, headers=headers)
+    assert response.status_code == 201, "\033[91mFailed to create dummy product.\033[0m"
+    product_id = response.json().get("product_id")
+
+    service_data = {
+        "user": "testuser",
+        "description": "Test Service",
+        "price": 100,
+        "available_dates": ["2024-04-01T09:00:00", "2024-04-08T09:00:00"]
+    }
+
+    response = requests.post(f"{API_BASE_URL}/api/services", json=service_data, headers=headers)
+    assert response.status_code == 201, "\033[91mFailed to create test service.\033[0m"
+    service_id = response.json()["service_id"]
+
+    response = requests.post(f"{API_BASE_URL}/api/register", json={"username": "testuser1", "password": "password"})
+    assert response.status_code == 201, "\033[91mFailed to register user.\033[0m"
+
+    response = requests.post(f"{API_BASE_URL}/api/login", json={"username": "testuser1", "password": "password"})
+    assert response.status_code == 200, "\033[91mFailed to login user.\033[0m"
+    token = response.json().get("access_token")
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+
+    # Book an appointment with valid data
+    appointment_data = {
+        "user": "testuser1",
+        "service_id": service_id,
+        "timeslot": "2024-04-01T09:00:00"
+    }
+
+    response = requests.post(f"{API_BASE_URL}/api/appointments", json=appointment_data, headers=headers)
+    assert response.status_code == 200, "\033[91mFailed to book appointment.\033[0m"
+
+
+    response = requests.post(f"{API_BASE_URL}/api/purchase_product/{product_id}", headers=headers)
+    assert response.status_code == 200, "\033[91mFailed: Purchase of product.\033[0m"
+
+
+    response = requests.get(f"{API_BASE_URL}/api/user/appointments_and_bookings", headers=headers)
+    assert response.status_code == 200, "\033[91mFailed: to get appointments and bookings.\033[0m"
+    data = response.json()
+    assert len(data['user_bookings']) == 1
+    assert len(data['user_appointments']) == 1
+    print("Passed: User purchases and bookings.")
+
+def test_product_search():
+    print("Testing Product Search...")
+
+    # Register and login a user
+    response = requests.post(f"{API_BASE_URL}/api/register", json={"username": "testuser", "password": "password"})
+    assert response.status_code == 201, "\033[91mFailed to register user.\033[0m"
+
+    response = requests.post(f"{API_BASE_URL}/api/login", json={"username": "testuser", "password": "password"})
+    assert response.status_code == 200, "\033[91mFailed to login user.\033[0m"
+    token = response.json().get("access_token")
+
+    # Create dummy products
+    product_data = [
+        {"user": "testuser", "description": "Dummy Product 1", "price": 10, "quantity": 100},
+        {"user": "testuser", "description": "Dummy Product 2", "price": 15, "quantity": 50},
+        {"user": "testuser", "description": "Dummy Product 3", "price": 20, "quantity": 200},
+        {"user": "testuser", "description": "Birds in the shky", "price": 20, "quantity": 200}
+    ]
+    headers = {"Authorization": f"Bearer {token}"}
+    for data in product_data:
+        response = requests.post(f"{API_BASE_URL}/api/products", json=data, headers=headers)
+        assert response.status_code == 201, "\033[91mFailed to create dummy product.\033[0m"
+
+
+        
+    # Test product search with a partial title
+    response = requests.get(f"{API_BASE_URL}/api/products/search?title=dummy")
+    print(response)
+    assert response.status_code == 200, "\033[91mFailed: Product search with partial title test.\033[0m"
+    data = response.json()
+    print(data)
+    assert len(data['products']) == 3
+    print("Passed: Product Search tests.")
+
+
 
 def test_health_check():
     print("Testing Health Check Endpoint...")
@@ -581,7 +679,9 @@ def test_delete_appointment():
     print("Passed: Delete Appointment test.")
 
 # Main script
-tests = [   ("Test register", test_register), 
+tests = [   ("Test appointments and bookings", test_appointments_and_bookings),
+            ("Test search", test_product_search),
+            ("Test register", test_register), 
             ("Test login", test_login), 
             ("Test check username", test_check_username),
             ("Test check existing username", test_check_existing_username),

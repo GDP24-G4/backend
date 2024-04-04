@@ -7,6 +7,7 @@ from flask_jwt_extended import JWTManager, jwt_required, create_access_token, ge
 from bson import json_util, ObjectId
 from dotenv import load_dotenv
 from pymongo import ReturnDocument
+from datetime import datetime
 
 # load env
 load_dotenv()
@@ -123,26 +124,28 @@ def create_product():
 @jwt_required()
 def purchase_product(product_id):
     current_user = get_jwt_identity()
-    
-    # Attempt to atomically decrement the quantity if it's greater than 0
-    # and ensure the current user is not the seller
-    updated_product = mongo.db.products.find_one_and_update(
-        {'_id': ObjectId(product_id), 'quantity': {'$gt': 0}, 'user': {'$ne': current_user}},
-        {'$inc': {'quantity': -1}},
-        return_document=ReturnDocument.AFTER
-    )
 
-    if not updated_product:
-        # Check if the product exists without applying updates
-        product = mongo.db.products.find_one({'_id': ObjectId(product_id)})
-        if not product:
-            return jsonify({"msg": "Product not found"}), 404
-        elif product['user'] == current_user:
-            return jsonify({"msg": "Sellers cannot buy their own products"}), 403
-        else:
-            return jsonify({"msg": "Product is not available"}), 409
+    # Find the product to purchase
+    product = mongo.db.products.find_one({'_id': ObjectId(product_id)})
+    if not product:
+        return jsonify({"msg": "Product not found"}), 404
+    elif product['user'] == current_user:
+        return jsonify({"msg": "Sellers cannot buy their own products"}), 403
+    elif product['quantity'] == 0:
+        return jsonify({"msg": "Product is not available"}), 409
 
-    return jsonify({"msg": "Product purchased successfully", "product_id": str(product_id), "new_quantity": updated_product['quantity']}), 200
+    # Decrement the product quantity and update the database
+    mongo.db.products.update_one({'_id': ObjectId(product_id)}, {'$inc': {'quantity': -1}})
+
+    # Record the purchase in the purchases collection
+    purchase_data = {
+        'user': current_user,
+        'product_id': product_id,
+        'purchase_time': datetime.now(),
+    }
+    mongo.db.purchases.insert_one(purchase_data)
+
+    return jsonify({"msg": "Product purchased successfully", "product_id": str(product_id)}), 200
 
 
 @app.route('/api/products/<product_id>/is_sold_out', methods=['GET'])
@@ -282,6 +285,14 @@ def book_appointment():
 
         appointment_id = handle_db_call(
             lambda: mongo.db.appointments.insert_one(appointment_data).inserted_id)
+
+        booking_data = {
+            'user': current_user,
+            'appointment_id': appointment_id,
+            'booking_time': datetime.now()
+        }
+        mongo.db.bookings.insert_one(booking_data)
+
         return json_util.dumps({"message": "Appointment booked successfully", "appointment_id": str(appointment_id)}), 200
     except Exception as e:
         logger.error(f"Failed to book an appointment for service {service_id}: {e}")
@@ -319,3 +330,28 @@ def delete_appointment(appointment_id):
     mongo.db.appointments.delete_one({'_id': ObjectId(appointment_id)})
 
     return jsonify({"msg": "Appointment deleted successfully"}), 200
+
+
+@app.route('/api/products/search', methods=['GET'])
+def search_products():
+    title = request.args.get('title', '')
+    products = handle_db_call(
+        lambda: mongo.db.products.find({"description": {"$regex": title, "$options": "i"}})
+    )
+    return json_util.dumps({"products": products}), 200
+
+
+@app.route('/api/user/appointments_and_bookings', methods=['GET'])
+@jwt_required()
+def get_user_appointments_and_bookings():
+    try:
+        current_user = get_jwt_identity()
+
+        user_appointments = handle_db_call(lambda: mongo.db.appointments.find({'user': current_user}))
+
+        user_bookings = handle_db_call(lambda: mongo.db.bookings.find({'user': current_user}))
+
+        return json_util.dumps({"user_appointments": user_appointments, "user_bookings": user_bookings}), 200
+    except Exception as e:
+        logger.error(f"Failed to retrieve appointments and bookings for user {current_user}: {e}")
+        abort(500, "Internal Server Error")
