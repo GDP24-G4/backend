@@ -1,6 +1,7 @@
 import os
 import logging
 import pymongo
+import datetime
 from flask import Flask, request, abort, jsonify
 from flask_pymongo import PyMongo
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
@@ -22,6 +23,7 @@ mongo = PyMongo(app)
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
 jwt = JWTManager(app)
 
+TOKEN_EXPIRE_TIME = datetime.timedelta(seconds=35)
 
 @app.before_request
 def log_request_info():
@@ -57,6 +59,14 @@ def register():
     users.insert_one({"username": username, "password": password})
     return jsonify({"msg": "User registered successfully"}), 201
 
+@jwt.expired_token_loader
+def my_expired_token_callback(jwt_header, jwt_data):
+    token_type = jwt_data['type']
+    return jsonify({
+        'status': 401,
+        'sub_status': 42,
+        'msg': 'The {} token has expired. Refresh Page & Log-in Again'.format(token_type)
+    }), 401
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -69,9 +79,9 @@ def login():
     if not user:
         return jsonify({"msg": "Bad username or password"}), 401
 
-    access_token = create_access_token(identity=username)
+    expires = TOKEN_EXPIRE_TIME
+    access_token = create_access_token(identity=username, expires_delta=expires)
     return jsonify(access_token=access_token), 200
-
 
 @app.route('/api/check_username', methods=['GET'])
 def check_username():
