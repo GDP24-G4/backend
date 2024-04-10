@@ -355,3 +355,17 @@ def get_user_appointments_and_bookings():
     except Exception as e:
         logger.error(f"Failed to retrieve appointments and bookings for user {current_user}: {e}")
         abort(500, "Internal Server Error")
+
+@app.route("/api/user/purchases", methods=["GET"])
+@jwt_required()
+def get_user_purchases():
+    try:
+        current_user = get_jwt_identity()
+
+        user_purchases = handle_db_call(lambda: mongo.db.purchases.find({'user': current_user}))
+
+        logger.info(f"Retrieved purchases for user {current_user}. {user_purchases}")
+        return json_util.dumps({"user_purchases": user_purchases}), 200
+    except Exception as e:
+        logger.error(f"Failed to retrieve purchases for user {current_user}: {e}")
+        abort(500, "Internal Server Error")
