@@ -1,5 +1,7 @@
 # Backend for Campus Connect
 
+This a backend app for a college market place where people can buy/sell items and book appointments for services. 
+
 Prerequisites:
 
 * Install docker from official website
